@@ -7,6 +7,7 @@ import paddle.nn as nn
 import paddle.nn.functional as F
 import paddle.optimizer as optim
 
+from .loss_fn import HingeEmbeddingLoss
 from dataset import *
 from model import *
 import scipy
@@ -50,6 +51,8 @@ parser.add_argument('--image_save_interval', type=int, default=1000,
                     help='Save test results every image_save_interval iterations.')
 parser.add_argument('--model_save_interval', type=int, default=10000,
                     help='Save models every model_save_interval iterations.')
+
+paddle.set_device('gpu') if paddle.is_compiled_with_cuda() else paddle.set_device('cpu')
 
 
 def as_np(data):
@@ -176,7 +179,7 @@ def main():
 
     recon_criterion = nn.MSELoss()
     gan_criterion = nn.BCELoss()
-    feat_criterion = nn.HingeEmbeddingLoss()
+    feat_criterion = HingeEmbeddingLoss()
 
     gen_params = chain(generator_A.parameters(), generator_B.parameters())
     dis_params = chain(discriminator_A.parameters(), discriminator_B.parameters())
