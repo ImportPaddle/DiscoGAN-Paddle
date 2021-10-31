@@ -1,254 +1,344 @@
 import os
-import cv2
-import numpy as np
-import pandas as pd
-import scipy.io
+import argparse
+from itertools import chain
 
-dataset_path = './datasets/'
-celebA_path = os.path.join(dataset_path, 'celebA')
-handbag_path = os.path.join(dataset_path, 'edges2handbags')
-shoe_path = os.path.join(dataset_path, 'edges2shoes')
-facescrub_path = os.path.join(dataset_path, 'facescrub')
-chair_path = os.path.join(dataset_path, 'rendered_chairs')
-face_3d_path = os.path.join(dataset_path, 'PublicMM1', '05_renderings')
-face_real_path = os.path.join(dataset_path, 'real_face')
-car_path = os.path.join(dataset_path, 'data', 'cars')
+import paddle
+import paddle.nn as nn
+import paddle.nn.functional as F
+import paddle.optimizer as optim
 
+from loss_fn import HingeEmbeddingLoss
+from dataset import *
+from model import *
+from PIL import Image
+import scipy
+from progressbar import ETA, Bar, Percentage, ProgressBar
 
-def shuffle_data(da, db):
-    a_idx = np.arange(len(da))
-    np.random.shuffle(a_idx)
+parser = argparse.ArgumentParser(description='Paddle implementation of DiscoGAN')
+parser.add_argument('--cuda', type=str, default='true', help='Set cuda usage')
+parser.add_argument('--task_name', type=str, default='facescrub', help='Set data name')
+parser.add_argument('--epoch_size', type=int, default=5000, help='Set epoch size')
+parser.add_argument('--batch_size', type=int, default=64, help='Set batch size')
+parser.add_argument('--learning_rate', type=float, default=0.0002, help='Set learning rate for optimizer')
+parser.add_argument('--result_path', type=str, default='./results/',
+                    help='Set the path the result images will be saved.')
+parser.add_argument('--model_path', type=str, default='./models/', help='Set the path for trained models')
+parser.add_argument('--model_arch', type=str, default='discogan',
+                    help='choose among gan/recongan/discogan. gan - standard GAN, recongan - GAN with reconstruction, discogan - DiscoGAN.')
+parser.add_argument('--image_size', type=int, default=64, help='Image size. 64 for every experiment in the paper')
 
-    b_idx = np.arange(len(db))
-    np.random.shuffle(b_idx)
+parser.add_argument('--gan_curriculum', type=int, default=10000,
+                    help='Strong GAN loss for certain period at the beginning')
+parser.add_argument('--starting_rate', type=float, default=0.01,
+                    help='Set the lambda weight between GAN loss and Recon loss during curriculum period at the beginning. We used the 0.01 weight.')
+parser.add_argument('--default_rate', type=float, default=0.5,
+                    help='Set the lambda weight between GAN loss and Recon loss after curriculum period. We used the 0.5 weight.')
 
-    shuffled_da = np.array(da)[np.array(a_idx)]
-    shuffled_db = np.array(db)[np.array(b_idx)]
+parser.add_argument('--data_path', type=str, default=None,
+                    help='Path to CelebA dataset parent root')
+parser.add_argument('--style_A', type=str, default=None,
+                    help='Style for CelebA dataset. Could be any attributes in celebA (Young, Male, Blond_Hair, Wearing_Hat ...)')
+parser.add_argument('--style_B', type=str, default=None,
+                    help='Style for CelebA dataset. Could be any attributes in celebA (Young, Male, Blond_Hair, Wearing_Hat ...)')
+parser.add_argument('--constraint', type=str, default=None,
+                    help='Constraint for celebA dataset. Only images satisfying this constraint is used. For example, if --constraint=Male, and --constraint_type=1, only male images are used for both style/domain.')
+parser.add_argument('--constraint_type', type=str, default=None,
+                    help='Used along with --constraint. If --constraint_type=1, only images satisfying the constraint are used. If --constraint_type=-1, only images not satisfying the constraint are used.')
+parser.add_argument('--n_test', type=int, default=200, help='Number of test data.')
 
-    return shuffled_da, shuffled_db
+parser.add_argument('--update_interval', type=int, default=3, help='')
+parser.add_argument('--log_interval', type=int, default=50, help='Print loss values every log_interval iterations.')
+parser.add_argument('--image_save_interval', type=int, default=1000,
+                    help='Save test results every image_save_interval iterations.')
+parser.add_argument('--model_save_interval', type=int, default=10000,
+                    help='Save models every model_save_interval iterations.')
 
-
-def read_images(filenames, domain=None, image_size=64):
-    images = []
-    for fn in filenames:
-        image = cv2.imread(fn)
-        if image is None:
-            continue
-
-        if domain == 'A':
-            kernel = np.ones((3, 3), np.uint8)
-            image = image[:, :256, :]
-            image = 255. - image
-            image = cv2.dilate(image, kernel, iterations=1)
-            image = 255. - image
-        elif domain == 'B':
-            image = image[:, 256:, :]
-
-        image = cv2.resize(image, (image_size, image_size))
-        image = image.astype(np.float32) / 255.
-        image = image.transpose(2, 0, 1)
-        images.append(image)
-
-    images = np.stack(images)
-    return images
-
-
-def read_attr_file(attr_path, image_dir):
-    f = open(attr_path)
-    lines = f.readlines()
-    lines = list(map(lambda line: line.strip(), lines))
-    columns = ['image_path'] + lines[1].split()
-    lines = lines[2:]
-
-    items = map(lambda line: line.split(), lines)
-    df = pd.DataFrame(items, columns=columns)
-    df['image_path'] = df['image_path'].map(lambda x: os.path.join(image_dir, x))
-
-    return df
+paddle.set_device('gpu') if paddle.is_compiled_with_cuda() else paddle.set_device('cpu')
 
 
-def get_celebA_files(data_path, style_A, style_B, constraint, constraint_type, test=False, n_test=200):
-    attr_file = os.path.join(data_path, 'list_attr_celeba.txt')
-    image_dir = os.path.join(data_path, 'img_align_celeba')
-    image_data = read_attr_file(attr_file, image_dir)
+def as_np(data):
+    return data.numpy()
 
-    if constraint:
-        image_data = image_data[image_data[constraint] == constraint_type]
 
-    style_A_data = image_data[image_data[style_A] == '1']['image_path'].values
-    if style_B:
-        style_B_data = image_data[image_data[style_B] == '1']['image_path'].values
+def get_data():
+    # celebA / edges2shoes / edges2handbags / ...
+    if args.task_name == 'facescrub':
+        data_A, data_B = get_facescrub_files(test=False, n_test=args.n_test)
+        test_A, test_B = get_facescrub_files(test=True, n_test=args.n_test)
+
+    elif args.task_name == 'celebA':
+        data_A, data_B = get_celebA_files(data_path=args.data_path, style_A=args.style_A, style_B=args.style_B,
+                                          constraint=args.constraint,
+                                          constraint_type=args.constraint_type,
+                                          test=False, n_test=args.n_test)
+        test_A, test_B = get_celebA_files(data_path=args.data_path, style_A=args.style_A, style_B=args.style_B,
+                                          constraint=args.constraint,
+                                          constraint_type=args.constraint_type,
+                                          test=True, n_test=args.n_test)
+
+    elif args.task_name == 'edges2shoes':
+        data_A, data_B = get_edge2photo_files(item='edges2shoes', test=False)
+        test_A, test_B = get_edge2photo_files(item='edges2shoes', test=True)
+
+    elif args.task_name == 'edges2handbags':
+        data_A, data_B = get_edge2photo_files(item='edges2handbags', test=False)
+        test_A, test_B = get_edge2photo_files(item='edges2handbags', test=True)
+
+    elif args.task_name == 'handbags2shoes':
+        data_A_1, data_A_2 = get_edge2photo_files(item='edges2handbags', test=False)
+        test_A_1, test_A_2 = get_edge2photo_files(item='edges2handbags', test=True)
+
+        data_A = np.hstack([data_A_1, data_A_2])
+        test_A = np.hstack([test_A_1, test_A_2])
+
+        data_B_1, data_B_2 = get_edge2photo_files(item='edges2shoes', test=False)
+        test_B_1, test_B_2 = get_edge2photo_files(item='edges2shoes', test=True)
+
+        data_B = np.hstack([data_B_1, data_B_2])
+        test_B = np.hstack([test_B_1, test_B_2])
+
+    return data_A, data_B, test_A, test_B
+
+
+def get_fm_loss(real_feats, fake_feats, criterion):
+    losses = 0
+    for real_feat, fake_feat in zip(real_feats, fake_feats):
+        l2 = (real_feat.mean(0) - fake_feat.mean(0)) * (real_feat.mean(0) - fake_feat.mean(0))
+        loss = criterion(l2, paddle.ones(l2.shape))
+        losses += loss
+
+    return losses
+
+
+def get_gan_loss(dis_real, dis_fake, criterion, cuda):
+    labels_dis_real = paddle.ones([dis_real.shape[0], 1])
+    labels_dis_fake = paddle.zeros([dis_fake.shape[0], 1])
+    labels_gen = paddle.ones([dis_fake.shape[0], 1])
+
+    dis_real = dis_real.reshape([dis_real.shape[0], 1])
+    dis_fake = dis_fake.reshape([dis_fake.shape[0], 1])
+    dis_loss = criterion(dis_real, labels_dis_real) * 0.5 + criterion(dis_fake, labels_dis_fake) * 0.5
+    gen_loss = criterion(dis_fake, labels_gen)
+
+    return dis_loss, gen_loss
+
+
+def main():
+    global args
+    args = parser.parse_args()
+
+    cuda = args.cuda
+    if cuda == 'true':
+        cuda = True
     else:
-        style_B_data = image_data[image_data[style_A] == '-1']['image_path'].values
+        cuda = False
 
-    if test == False:
-        return style_A_data[:-n_test], style_B_data[:-n_test]
-    if test == True:
-        return style_A_data[-n_test:], style_B_data[-n_test:]
+    task_name = args.task_name
 
+    epoch_size = args.epoch_size
+    batch_size = args.batch_size
 
-def get_edge2photo_files(item='edges2handbags', test=False):
-    if item == 'edges2handbags':
-        item_path = handbag_path
-    elif item == 'edges2shoes':
-        item_path = shoe_path
+    result_path = os.path.join(args.result_path, args.task_name)
+    if args.style_A:
+        result_path = os.path.join(result_path, args.style_A)
+    result_path = os.path.join(result_path, args.model_arch)
 
-    if test == True:
-        item_path = os.path.join(item_path, 'val')
+    model_path = os.path.join(args.model_path, args.task_name)
+    if args.style_A:
+        model_path = os.path.join(model_path, args.style_A)
+    model_path = os.path.join(model_path, args.model_arch)
+
+    data_style_A, data_style_B, test_style_A, test_style_B = get_data()
+
+    if args.task_name.startswith('edges2'):
+        test_A = read_images(test_style_A, 'A', args.image_size)
+        test_B = read_images(test_style_B, 'B', args.image_size)
+
+    elif args.task_name == 'handbags2shoes' or args.task_name == 'shoes2handbags':
+        test_A = read_images(test_style_A, 'B', args.image_size)
+        test_B = read_images(test_style_B, 'B', args.image_size)
+
     else:
-        item_path = os.path.join(item_path, 'train')
+        test_A = read_images(test_style_A, None, args.image_size)
+        test_B = read_images(test_style_B, None, args.image_size)
 
-    image_paths = map(lambda x: os.path.join(item_path, x), os.listdir(item_path))
+    test_A = paddle.to_tensor(test_A, dtype=paddle.float32, stop_gradient=False)
+    test_B = paddle.to_tensor(test_B, dtype=paddle.float32, stop_gradient=False)
+    # test_A = Variable(torch.FloatTensor(test_A), volatile=True)
+    # test_B = Variable(torch.FloatTensor(test_B), volatile=True)
 
-    if test == True:
-        return [image_paths, image_paths]
-    else:
-        n_images = len(image_paths)
-        return [image_paths[:n_images / 2], image_paths[n_images / 2:]]
+    if not os.path.exists(result_path):
+        os.makedirs(result_path)
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+
+    generator_A = Generator()
+    generator_B = Generator()
+    discriminator_A = Discriminator()
+    discriminator_B = Discriminator()
+
+    data_size = min(len(data_style_A), len(data_style_B))
+    n_batches = (data_size // batch_size)
+
+    recon_criterion = nn.MSELoss()
+    gan_criterion = nn.BCELoss()
+    feat_criterion = HingeEmbeddingLoss()
+
+    gen_params = chain(generator_A.parameters(), generator_B.parameters())
+    dis_params = chain(discriminator_A.parameters(), discriminator_B.parameters())
+
+    optim_gen = optim.Adam(parameters=gen_params,
+                           learning_rate=args.learning_rate,
+                           beta1=0.5, beta2=0.999,
+                           weight_decay=0.00001)
+    optim_dis = optim.Adam(parameters=dis_params,
+                           learning_rate=args.learning_rate,
+                           beta1=0.5, beta2=0.999,
+                           weight_decay=0.00001)
+
+    iters = 0
+
+    gen_loss_total = []
+    dis_loss_total = []
+
+    for epoch in range(epoch_size):
+        data_style_A, data_style_B = shuffle_data(data_style_A, data_style_B)
+
+        widgets = ['epoch #%d|' % epoch, Percentage(), Bar(), ETA()]
+        pbar = ProgressBar(maxval=n_batches, widgets=widgets)
+        pbar.start()
+
+        for i in range(n_batches):
+
+            pbar.update(i)
+
+            A_path = data_style_A[i * batch_size: (i + 1) * batch_size]
+            B_path = data_style_B[i * batch_size: (i + 1) * batch_size]
+
+            if args.task_name.startswith('edges2'):
+                A = read_images(A_path, 'A', args.image_size)
+                B = read_images(B_path, 'B', args.image_size)
+            elif args.task_name == 'handbags2shoes' or args.task_name == 'shoes2handbags':
+                A = read_images(A_path, 'B', args.image_size)
+                B = read_images(B_path, 'B', args.image_size)
+            else:
+                A = read_images(A_path, None, args.image_size)
+                B = read_images(B_path, None, args.image_size)
+
+            A = paddle.to_tensor(A, dtype=paddle.float32, stop_gradient=False)
+            B = paddle.to_tensor(B, dtype=paddle.float32, stop_gradient=False)
+            # A = Variable(torch.FloatTensor(A))
+            # B = Variable(torch.FloatTensor(B))
+
+            AB = generator_B(A)
+            BA = generator_A(B)
+
+            ABA = generator_A(AB)
+            BAB = generator_B(BA)
+
+            # Reconstruction Loss
+            recon_loss_A = recon_criterion(ABA, A)
+            recon_loss_B = recon_criterion(BAB, B)
+
+            # Real/Fake GAN Loss (A)
+            A_dis_real, A_feats_real = discriminator_A(A)
+            A_dis_fake, A_feats_fake = discriminator_A(BA)
+
+            dis_loss_A, gen_loss_A = get_gan_loss(A_dis_real, A_dis_fake, gan_criterion, cuda)
+            fm_loss_A = get_fm_loss(A_feats_real, A_feats_fake, feat_criterion)
+
+            # Real/Fake GAN Loss (B)
+            B_dis_real, B_feats_real = discriminator_B(B)
+            B_dis_fake, B_feats_fake = discriminator_B(AB)
+
+            dis_loss_B, gen_loss_B = get_gan_loss(B_dis_real, B_dis_fake, gan_criterion, cuda)
+            fm_loss_B = get_fm_loss(B_feats_real, B_feats_fake, feat_criterion)
+
+            # Total Loss
+
+            if iters < args.gan_curriculum:
+                rate = args.starting_rate
+            else:
+                rate = args.default_rate
+
+            gen_loss_A_total = (gen_loss_B * 0.1 + fm_loss_B * 0.9) * (1. - rate) + recon_loss_A * rate
+            gen_loss_B_total = (gen_loss_A * 0.1 + fm_loss_A * 0.9) * (1. - rate) + recon_loss_B * rate
+
+            if args.model_arch == 'discogan':
+                gen_loss = gen_loss_A_total + gen_loss_B_total
+                dis_loss = dis_loss_A + dis_loss_B
+            elif args.model_arch == 'recongan':
+                gen_loss = gen_loss_A_total
+                dis_loss = dis_loss_B
+            elif args.model_arch == 'gan':
+                gen_loss = (gen_loss_B * 0.1 + fm_loss_B * 0.9)
+                dis_loss = dis_loss_B
+
+            if iters % args.update_interval == 0:
+                dis_loss.backward()
+                optim_dis.step()
+                optim_dis.clear_grad()
+            else:
+                gen_loss.backward()
+                optim_gen.step()
+                optim_gen.clear_grad()
+
+            if iters % args.log_interval == 0:
+                print(f"Iter: {iter} -------------------------")
+                print("Total GEN Loss:", gen_loss.item())
+                print("Total DIS Loss:", dis_loss.item())
+
+                print("GEN Loss:", as_np(gen_loss_A.mean()), as_np(gen_loss_B.mean()))
+                print("Feature Matching Loss:", as_np(fm_loss_A.mean()), as_np(fm_loss_B.mean()))
+                print("RECON Loss:", as_np(recon_loss_A.mean()), as_np(recon_loss_B.mean()))
+                print("DIS Loss:", as_np(dis_loss_A.mean()), as_np(dis_loss_B.mean()))
+
+            if (iters + 1) % args.image_save_interval == 0:
+                with paddle.no_grad():
+                    AB = generator_B(test_A)
+                    BA = generator_A(test_B)
+                    ABA = generator_A(AB)
+                    BAB = generator_B(BA)
+
+                n_testset = min(test_A.shape[0], test_B.shape[0])
+
+                subdir_path = os.path.join(result_path, str(iters / args.image_save_interval))
+
+                if os.path.exists(subdir_path):
+                    pass
+                else:
+                    os.makedirs(subdir_path)
+
+                for im_idx in range(n_testset):
+                    A_val = test_A[im_idx].numpy().transpose(1, 2, 0) * 255.
+                    B_val = test_B[im_idx].numpy().transpose(1, 2, 0) * 255.
+                    BA_val = BA[im_idx].numpy().transpose(1, 2, 0) * 255.
+                    ABA_val = ABA[im_idx].numpy().transpose(1, 2, 0) * 255.
+                    AB_val = AB[im_idx].numpy().transpose(1, 2, 0) * 255.
+                    BAB_val = BAB[im_idx].numpy().transpose(1, 2, 0) * 255.
+
+                    filename_prefix = os.path.join(subdir_path, str(im_idx))
+                    Image.fromarray(A_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.A.jpg')
+                    Image.fromarray(B_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.B.jpg')
+                    Image.fromarray(BA_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.BA.jpg')
+                    Image.fromarray(AB_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.AB.jpg')
+                    Image.fromarray(ABA_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.ABA.jpg')
+                    Image.fromarray(BAB_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.BAB.jpg')
+                print("Test images saved to", subdir_path)
+
+            if (iters + 1) % args.model_save_interval == 0:
+                paddle.save(generator_A.state_dict(), os.path.join(model_path,
+                    'model_gen_A_' + str(iters / args.model_save_interval) + '.pdparams'))
+                paddle.save(generator_B.state_dict(), os.path.join(model_path,
+                    'model_gen_B_' + str(iters / args.model_save_interval) + '.pdparams'))
+                paddle.save(discriminator_A.state_dict(), os.path.join(model_path,
+                    'model_dis_A-' + str(iters / args.model_save_interval) + '.pdparams'))
+                paddle.save(discriminator_B.state_dict(), os.path.join(model_path,
+                    'model_dis_B-' + str(iters / args.model_save_interval) + '.pdparams'))
+                print("models saved to", model_path)
+
+            iters += 1
 
 
-def get_facescrub_files(test=False, n_test=200):
-    actor_path = os.path.join(facescrub_path, 'actors', 'face')
-    actress_path = os.path.join(facescrub_path, 'actresses', 'face')
-
-    actor_files = map(lambda x: os.path.join(actor_path, x), os.listdir(actor_path))
-    actress_files = map(lambda x: os.path.join(actress_path, x), os.listdir(actress_path))
-
-    if test == False:
-        return actor_files[:-n_test], actress_files[:-n_test]
-    else:
-        return actor_files[-n_test:], actress_files[-n_test:]
-
-
-def get_chairs(test=False, half=None, ver=360, angle_info=False):
-    chair_ids = os.listdir(chair_path)
-    if test:
-        current_ids = chair_ids[-10:]
-    else:
-        if half is None:
-            current_ids = chair_ids[:-10]
-        elif half == 'first':
-            current_ids = chair_ids[:-10][:len(chair_ids) / 2]
-        elif half == 'last':
-            current_ids = chair_ids[:-10][len(chair_ids) / 2:]
-
-    chair_paths = []
-
-    for chair in current_ids:
-        current_path = os.path.join(chair_path, chair, 'renders')
-        if not os.path.exists(current_path): continue
-        filenames = filter(lambda x: x.endswith('.png'), os.listdir(current_path))
-
-        for filename in filenames:
-            angle = int(filename.split('_')[3][1:])
-            filepath = os.path.join(current_path, filename)
-
-            if ver == 180:
-                if angle > 180 and angle < 360: chair_paths.append(filepath)
-            if ver == 360:
-                chair_paths.append(filepath)
-
-    return chair_paths
-
-
-def get_cars(test=False, ver=360, interval=1, half=None, angle_info=False, image_size=64, gray=True):
-    car_files = map(lambda x: os.path.join(car_path, x), os.listdir(car_path))
-    car_files = filter(lambda x: x.endswith('.mat'), car_files)
-
-    car_idx = map(lambda x: int(x.split('car_')[1].split('_mesh')[0]), car_files)
-    car_df = pd.DataFrame({'idx': car_idx, 'path': car_files}).sort_values(by='idx')
-
-    car_files = car_df['path'].values
-
-    if not test:
-        car_files = car_files[:-14]
-    else:
-        car_files = car_files[-14:]
-
-    car_images = []
-    classes = []
-
-    n_cars = len(car_files)
-    car_idx = 0
-    for car_file in car_files:
-        if not car_file.endswith('.mat'): continue
-        car_mat = scipy.io.loadmat(car_file)
-        car_ims = car_mat['im']
-        car_idx += 1
-
-        if half == 'first':
-            if car_idx > n_cars / 2:
-                break
-        elif half == 'last':
-            if car_idx <= n_cars / 2:
-                continue
-
-        if ver == 360:
-            for idx, i in enumerate(range(24)):
-                car_image = car_ims[:, :, :, i, 3]
-                car_image = cv2.resize(car_image, (image_size, image_size))
-                if gray:
-                    car_image = cv2.cvtColor(car_image, cv2.COLOR_BGR2GRAY)
-                    car_image = np.repeat(car_image[:, :, None], 3, 2)
-                car_image = car_image.transpose(2, 0, 1)
-                car_image = car_image.astype(np.float32) / 255.
-                car_images.append(car_image)
-                if angle_info:
-                    classes.append(idx)
-
-        elif ver == 180:
-            for idx, i in enumerate(range(5, -1, -1) + range(23, 18, -1)):
-                car_image = car_ims[:, :, :, i, 3]
-                car_image = cv2.resize(car_image, (image_size, image_size))
-                if gray:
-                    car_image = cv2.cvtColor(car_image, cv2.COLOR_BGR2GRAY)
-                    car_image = np.repeat(car_image[:, :, None], 3, 2)
-                car_image = car_image.transpose(2, 0, 1)
-                car_image = car_image.astype(np.float32) / 255.
-                car_images.append(car_image)
-                if angle_info:
-                    classes.append(idx)
-
-        elif ver == 90:
-            for idx, i in enumerate(range(5, -1, -1)):
-                car_image = car_ims[:, :, :, i, 3]
-                car_image = cv2.resize(car_image, (image_size, image_size))
-                car_image = car_image.transpose(2, 0, 1)
-                car_image = car_image.astype(np.float32) / 255.
-                car_images.append(car_image)
-                if angle_info:
-                    classes.append(idx)
-
-    car_images = car_images[::interval]
-
-    if angle_info:
-        return np.stack(car_images), np.array(classes)
-
-    return np.stack(car_images)
-
-
-def get_faces_3d(test=False, half=None):
-    files = os.listdir(face_3d_path)
-    image_files = filter(lambda x: x.endswith('.png'), files)
-
-    df = pd.DataFrame({'image_path': image_files})
-    df['id'] = df['image_path'].map(lambda x: x.split('/')[-1][:20])
-    unique_ids = df['id'].unique()
-
-    if not test:
-        if half is None:
-            current_ids = unique_ids[:8]
-        if half == 'first':
-            current_ids = unique_ids[:4]
-        if half == 'last':
-            current_ids = unique_ids[4:8]
-    else:
-        current_ids = unique_ids[8:]
-
-    groups = df.groupby('id')
-    image_paths = []
-
-    for current_id in current_ids:
-        image_paths += groups.get_group(current_id)['image_path'].tolist()
-
-    return image_paths
+if __name__ == "__main__":
+    main()

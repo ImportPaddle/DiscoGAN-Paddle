@@ -18,7 +18,7 @@ class HingeEmbeddingLoss(nn.Layer):
     def forward(self, x, y):
         if (y == 1.).all():
             self.loss = x
-        if (y == -1).all():
+        if (y == -1.).all():
             self.loss = paddle.maximum(paddle.to_tensor(0.), self.margin - x)
         if self.reduction == 'mean':
             return self.loss.mean()

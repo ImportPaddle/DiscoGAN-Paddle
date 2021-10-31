@@ -10,7 +10,7 @@ import paddle.optimizer as optim
 from loss_fn import HingeEmbeddingLoss
 from dataset import *
 from model import *
-import scipy
+from PIL import Image
 from progressbar import ETA, Bar, Percentage, ProgressBar
 
 parser = argparse.ArgumentParser(description='Paddle implementation of DiscoGAN')
@@ -114,8 +114,8 @@ def get_gan_loss(dis_real, dis_fake, criterion, cuda):
     labels_dis_fake = paddle.zeros([dis_fake.shape[0], 1])
     labels_gen = paddle.ones([dis_fake.shape[0], 1])
 
-    dis_real.reshape_([dis_real.shape[0], 1])
-    dis_fake.reshape_([dis_fake.shape[0], 1])
+    dis_real = dis_real.reshape([dis_real.shape[0], 1])
+    dis_fake = dis_fake.reshape([dis_fake.shape[0], 1])
     dis_loss = criterion(dis_real, labels_dis_real) * 0.5 + criterion(dis_fake, labels_dis_fake) * 0.5
     gen_loss = criterion(dis_fake, labels_gen)
 
@@ -283,13 +283,16 @@ def main():
                 optim_gen.clear_grad()
 
             if iters % args.log_interval == 0:
-                print("---------------------")
+                print(f"Iter: {iter} -------------------------")
+                print("Total GEN Loss:", gen_loss.item())
+                print("Total DIS Loss:", dis_loss.item())
+
                 print("GEN Loss:", as_np(gen_loss_A.mean()), as_np(gen_loss_B.mean()))
                 print("Feature Matching Loss:", as_np(fm_loss_A.mean()), as_np(fm_loss_B.mean()))
                 print("RECON Loss:", as_np(recon_loss_A.mean()), as_np(recon_loss_B.mean()))
                 print("DIS Loss:", as_np(dis_loss_A.mean()), as_np(dis_loss_B.mean()))
 
-            if iters % args.image_save_interval == 0:
+            if (iters + 1) % args.image_save_interval == 0:
                 AB = generator_B(test_A)
                 BA = generator_A(test_B)
                 ABA = generator_A(AB)
@@ -313,22 +316,24 @@ def main():
                     BAB_val = BAB[im_idx].numpy().transpose(1, 2, 0) * 255.
 
                     filename_prefix = os.path.join(subdir_path, str(im_idx))
-                    scipy.misc.imsave(filename_prefix + '.A.jpg', A_val.astype(np.uint8)[:, :, ::-1])
-                    scipy.misc.imsave(filename_prefix + '.B.jpg', B_val.astype(np.uint8)[:, :, ::-1])
-                    scipy.misc.imsave(filename_prefix + '.BA.jpg', BA_val.astype(np.uint8)[:, :, ::-1])
-                    scipy.misc.imsave(filename_prefix + '.AB.jpg', AB_val.astype(np.uint8)[:, :, ::-1])
-                    scipy.misc.imsave(filename_prefix + '.ABA.jpg', ABA_val.astype(np.uint8)[:, :, ::-1])
-                    scipy.misc.imsave(filename_prefix + '.BAB.jpg', BAB_val.astype(np.uint8)[:, :, ::-1])
+                    Image.fromarray(A_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.A.jpg')
+                    Image.fromarray(B_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.B.jpg')
+                    Image.fromarray(BA_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.BA.jpg')
+                    Image.fromarray(AB_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.AB.jpg')
+                    Image.fromarray(ABA_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.ABA.jpg')
+                    Image.fromarray(BAB_val.astype(np.uint8)[:, :, ::-1]).save(filename_prefix + '.BAB.jpg')
+                print("Test images saved to", subdir_path)
 
-            if iters % args.model_save_interval == 0:
-                paddle.save(generator_A,
-                           os.path.join(model_path, 'model_gen_A-' + str(iters / args.model_save_interval)))
-                paddle.save(generator_B,
-                           os.path.join(model_path, 'model_gen_B-' + str(iters / args.model_save_interval)))
-                paddle.save(discriminator_A,
-                           os.path.join(model_path, 'model_dis_A-' + str(iters / args.model_save_interval)))
-                paddle.save(discriminator_B,
-                           os.path.join(model_path, 'model_dis_B-' + str(iters / args.model_save_interval)))
+            if (iters + 1) % args.model_save_interval == 0:
+                paddle.save(generator_A.state_dict(), os.path.join(model_path,
+                    'model_gen_A_' + str(iters / args.model_save_interval) + '.pdparams'))
+                paddle.save(generator_B.state_dict(), os.path.join(model_path,
+                    'model_gen_B_' + str(iters / args.model_save_interval) + '.pdparams'))
+                paddle.save(discriminator_A.state_dict(), os.path.join(model_path,
+                    'model_dis_A-' + str(iters / args.model_save_interval) + '.pdparams'))
+                paddle.save(discriminator_B.state_dict(), os.path.join(model_path,
+                    'model_dis_B-' + str(iters / args.model_save_interval) + '.pdparams'))
+                print("models saved to", model_path)
 
             iters += 1
 
