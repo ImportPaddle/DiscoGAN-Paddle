@@ -2,6 +2,12 @@
 __pycache__/
 *.py[cod]
 *$py.class
+./datasets/celeba
+.idea
+models/*
+results/*
+*.gz
+*.pyc
 
 # C extensions
 *.so
