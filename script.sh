@@ -6,11 +6,28 @@
 # Run CelebA (blond to black hair, only female)
 #python ./discogan/image_translation.py --task_name='celebA' --style_A='Blond_Hair' --style_B='Black_Hair' --constraint='Male' --constraint_type='-1' --batch_size=500
 
+# Run CelebA (eye_glass to no_eye_glass, only male)
+python DiscoGAN-Paddle/discogan/image_translation.py \
+    --data_path work/celeba \
+    --task_name 'celebA' \
+    --style_A 'Eyeglasses' \
+    --constraint='Male' --constraint_type='1' \
+    --batch_size 500
+
 # Run CelebA (male to female)
-python ./discogan/image_translation.py \
+python DiscoGAN-Paddle/discogan/image_translation.py \
     --data_path D:/code_sources/from_github/paddlepaddle/14s/DiscoGAN-Paddle/datasets/celeba \
     --task_name='celebA' \
     --style_A='Male' \
+    --batch_size=500
+
+# Run CelebA (blond to black hair, only female)
+python DiscoGAN-Paddle/discogan/image_translation.py \
+    --data_path work/celeba \
+    --task_name='celebA' \
+    --style_A='Blond_Hair' \
+    --style_B='Black_Hair' \
+    --constraint='Male' --constraint_type='-1' \
     --batch_size=500
 
 # Run Edges2Handbags
