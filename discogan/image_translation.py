@@ -7,7 +7,7 @@ import paddle.nn as nn
 import paddle.nn.functional as F
 import paddle.optimizer as optim
 
-from .loss_fn import HingeEmbeddingLoss
+from loss_fn import HingeEmbeddingLoss
 from dataset import *
 from model import *
 import scipy
@@ -56,7 +56,7 @@ paddle.set_device('gpu') if paddle.is_compiled_with_cuda() else paddle.set_devic
 
 
 def as_np(data):
-    return data.cpu().data.numpy()
+    return data.numpy()
 
 
 def get_data():
@@ -114,6 +114,8 @@ def get_gan_loss(dis_real, dis_fake, criterion, cuda):
     labels_dis_fake = paddle.zeros([dis_fake.shape[0], 1])
     labels_gen = paddle.ones([dis_fake.shape[0], 1])
 
+    dis_real.reshape_([dis_real.shape[0], 1])
+    dis_fake.reshape_([dis_fake.shape[0], 1])
     dis_loss = criterion(dis_real, labels_dis_real) * 0.5 + criterion(dis_fake, labels_dis_fake) * 0.5
     gen_loss = criterion(dis_fake, labels_gen)
 
@@ -209,11 +211,6 @@ def main():
 
             pbar.update(i)
 
-            generator_A.clear_grad()
-            generator_B.clear_grad()
-            discriminator_A.clear_grad()
-            discriminator_B.clear_grad()
-
             A_path = data_style_A[i * batch_size: (i + 1) * batch_size]
             B_path = data_style_B[i * batch_size: (i + 1) * batch_size]
 
@@ -279,9 +276,11 @@ def main():
             if iters % args.update_interval == 0:
                 dis_loss.backward()
                 optim_dis.step()
+                optim_dis.clear_grad()
             else:
                 gen_loss.backward()
                 optim_gen.step()
+                optim_gen.clear_grad()
 
             if iters % args.log_interval == 0:
                 print("---------------------")

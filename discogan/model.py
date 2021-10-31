@@ -2,8 +2,6 @@ import paddle
 import paddle.nn as nn
 import paddle.nn.functional as F
 
-import ipdb
-
 import numpy as np
 
 kernel_sizes = [4, 3, 3]
