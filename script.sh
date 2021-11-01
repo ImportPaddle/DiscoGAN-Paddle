@@ -11,16 +11,12 @@ python DiscoGAN-Paddle/discogan/image_translation.py \
     --data_path work/celeba \
     --task_name 'celebA' \
     --style_A 'Eyeglasses' \
-    --constraint='Male' --constraint_type='1' \
+    --constraint 'Male' --constraint_type='1' \
     --batch_size 500
 
 # Run CelebA (male to female)
-python DiscoGAN-Paddle/discogan/image_translation.py \
-    --data_path D:/code_sources/from_github/paddlepaddle/14s/DiscoGAN-Paddle/datasets/celeba \
-    --task_name='celebA' \
-    --style_A='Male' \
-    --batch_size=500
-
+python ./discogan/image_translation.py --image_dir ./datasets/celeba/celeba_demo --attr_file ./datasets/celeba/list_attr_celeba_demo.txt --task_name='celebA' --style_A='Male' --n_test 8 --batch_size=8
+python ./discogan/image_translation.py --image_dir ./datasets/celeba/celeba_demo --attr_file ./datasets/celeba/list_attr_celeba_demo.txt --task_name celebA --style_A Male --n_test 4 --batch_size 2 --epoch_size 5 --log_interval 2 --image_save_interval 5 --model_save_interval 5 --num_workers 0
 # Run CelebA (blond to black hair, only female)
 python DiscoGAN-Paddle/discogan/image_translation.py \
     --data_path work/celeba \
