@@ -14,7 +14,7 @@ from loss_fn import HingeEmbeddingLoss
 from dataset import CelebaDataset
 from model import *
 from PIL import Image
-from progressbar import ETA, Bar, Percentage, ProgressBar
+
 
 parser = argparse.ArgumentParser(description='Paddle implementation of DiscoGAN')
 parser.add_argument('--cuda', type=str, default='true', help='Set cuda usage')
@@ -102,7 +102,7 @@ def get_data():
         test_A, test_B = get_facescrub_files(test=True, n_test=args.n_test)
 
     elif args.task_name == 'celebA':
-        if args.local_rank == -1 or 0:
+        if args.local_rank == -1:
             batch_sampler = BatchSampler
         else:
             batch_sampler = DistributedBatchSampler
@@ -280,13 +280,7 @@ def main():
 
     iters = 0
 
-    gen_loss_total = []
-    dis_loss_total = []
-
     for epoch in range(epoch_size):
-        # widgets = ['epoch #%d|' % epoch, Percentage(), Bar(), ETA()]
-        # pbar = ProgressBar(maxval=n_batches, widgets=widgets)
-        # pbar.start()
 
         for data_style_A, data_style_B in train_loader:
             A = paddle.to_tensor(data_style_A, dtype=paddle.float32, stop_gradient=False)
