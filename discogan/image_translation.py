@@ -33,6 +33,8 @@ parser.add_argument('--starting_rate', type=float, default=0.01,
 parser.add_argument('--default_rate', type=float, default=0.5,
                     help='Set the lambda weight between GAN loss and Recon loss after curriculum period. We used the 0.5 weight.')
 
+parser.add_argument('--ckpt_path', type=str, default=None,
+                    help='Path to generator model path')
 parser.add_argument('--data_path', type=str, default=None,
                     help='Path to CelebA dataset parent root')
 parser.add_argument('--style_A', type=str, default=None,
@@ -163,8 +165,6 @@ def main():
 
     test_A = paddle.to_tensor(test_A, dtype=paddle.float32, stop_gradient=False)
     test_B = paddle.to_tensor(test_B, dtype=paddle.float32, stop_gradient=False)
-    # test_A = Variable(torch.FloatTensor(test_A), volatile=True)
-    # test_B = Variable(torch.FloatTensor(test_B), volatile=True)
 
     if not os.path.exists(result_path):
         os.makedirs(result_path)
@@ -175,6 +175,19 @@ def main():
     generator_B = Generator()
     discriminator_A = Discriminator()
     discriminator_B = Discriminator()
+
+    if args.ckpt_path:
+        # 加载预训练模型
+        discoGAN_ckpt = paddle.load(args.ckpt_path)
+        generator_A.set_state_dict(discoGAN_ckpt['generator_A'])
+        generator_B.set_state_dict(discoGAN_ckpt['generator_B'])
+        discriminator_A.set_state_dict(discoGAN_ckpt['discriminator_A'])
+        discriminator_B.set_state_dict(discoGAN_ckpt['discriminator_B'])
+
+        generator_A.train()
+        generator_B.train()
+        discriminator_A.train()
+        discriminator_B.train()
 
     data_size = min(len(data_style_A), len(data_style_B))
     n_batches = (data_size // batch_size)
@@ -226,8 +239,6 @@ def main():
 
             A = paddle.to_tensor(A, dtype=paddle.float32, stop_gradient=False)
             B = paddle.to_tensor(B, dtype=paddle.float32, stop_gradient=False)
-            # A = Variable(torch.FloatTensor(A))
-            # B = Variable(torch.FloatTensor(B))
 
             AB = generator_B(A)
             BA = generator_A(B)
@@ -325,15 +336,14 @@ def main():
                 print("Test images saved to", subdir_path)
 
             if (iters + 1) % args.model_save_interval == 0:
-                paddle.save(generator_A.state_dict(), os.path.join(model_path,
-                    'model_gen_A_' + str(iters / args.model_save_interval) + '.pdparams'))
-                paddle.save(generator_B.state_dict(), os.path.join(model_path,
-                    'model_gen_B_' + str(iters / args.model_save_interval) + '.pdparams'))
-                paddle.save(discriminator_A.state_dict(), os.path.join(model_path,
-                    'model_dis_A-' + str(iters / args.model_save_interval) + '.pdparams'))
-                paddle.save(discriminator_B.state_dict(), os.path.join(model_path,
-                    'model_dis_B-' + str(iters / args.model_save_interval) + '.pdparams'))
-                print("models saved to", model_path)
+                total_model_state_dict = {
+                    'generator_A': generator_A.state_dict(),
+                    'generator_B': generator_B.state_dict(),
+                    'discriminator_A': discriminator_A.state_dict(),
+                    'discriminator_B': discriminator_B.state_dict()
+                }
+                paddle.save(total_model_state_dict, os.path.join(model_path,
+                    'discoGAN' + str(iters / args.model_save_interval) + '.pdparams'))
 
             iters += 1
 

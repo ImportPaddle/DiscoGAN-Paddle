@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import scipy.io
+from paddle.io import Dataset
 
 dataset_path = './datasets/'
 celebA_path = os.path.join(dataset_path, 'celebA')
@@ -13,6 +14,85 @@ chair_path = os.path.join(dataset_path, 'rendered_chairs')
 face_3d_path = os.path.join(dataset_path, 'PublicMM1', '05_renderings')
 face_real_path = os.path.join(dataset_path, 'real_face')
 car_path = os.path.join(dataset_path, 'data', 'cars')
+
+
+class CelebaDataset(Dataset):
+    def __init__(self, img_dir, attr_file, image_size=64, style_A='male', style_B=None,
+                 constraint=None, constraint_type=None, test=True, n_test=200):
+        super(CelebaDataset, self).__init__()
+        self.img_dir = img_dir  # img_align_celeba 文件夹路径
+        self.attr_file = attr_file  # list_attr_celeba.txt 路径
+        self.image_size = image_size
+        self.style_A = style_A
+        self.style_B = style_B
+        self.constraint = constraint
+        self.constraint_type = constraint_type
+        self.test = test
+        self.n_test = n_test  # 测试集数量
+
+        style_A_data, style_B_data = self.get_celebA_files()
+        A = read_images(A_path, None, image_size=self.image_size)
+        B = read_images(B_path, None, image_size=self.image_size)
+
+    def __len__(self):
+        return len()
+
+    def __getitem__(self, index):
+        return
+
+    def read_images(self, filenames, domain=None, image_size=64):
+        images = []
+        for fn in filenames:
+            image = cv2.imread(fn)
+            if image is None:
+                continue
+
+            if domain == 'A':
+                kernel = np.ones((3, 3), np.uint8)
+                image = image[:, :256, :]
+                image = 255. - image
+                image = cv2.dilate(image, kernel, iterations=1)
+                image = 255. - image
+            elif domain == 'B':
+                image = image[:, 256:, :]
+
+            image = cv2.resize(image, (image_size, image_size))
+            image = image.astype(np.float32) / 255.
+            image = image.transpose(2, 0, 1)
+            images.append(image)
+
+        images = np.stack(images)
+        return images
+
+    def read_attr_file(self, attr_path, image_dir):
+        f = open(attr_path)
+        lines = f.readlines()
+        lines = list(map(lambda line: line.strip(), lines))
+        columns = ['image_path'] + lines[1].split()
+        lines = lines[2:]
+
+        items = map(lambda line: line.split(), lines)
+        df = pd.DataFrame(items, columns=columns)
+        df['image_path'] = df['image_path'].map(lambda x: os.path.join(image_dir, x))
+
+        return df
+
+    def get_celebA_files(self):
+        image_data = self.read_attr_file(self.attr_file, self.image_dir)
+
+        if self.constraint:
+            image_data = image_data[image_data[self.constraint] == self.constraint_type]
+
+        style_A_data = image_data[image_data[self.style_A] == '1']['image_path'].values
+        if self.style_B:
+            style_B_data = image_data[image_data[self.style_B] == '1']['image_path'].values
+        else:
+            style_B_data = image_data[image_data[self.style_A] == '-1']['image_path'].values
+
+        if self.test == False:
+            return style_A_data[:-self.n_test], style_B_data[:-self.n_test]
+        if self.test == True:
+            return style_A_data[-self.n_test:], style_B_data[-self.n_test:]
 
 
 def shuffle_data(da, db):
