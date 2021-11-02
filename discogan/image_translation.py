@@ -112,6 +112,7 @@ def get_data():
                                     constraint=args.constraint,
                                     constraint_type=args.constraint_type,
                                     test=True, n_test=args.n_test)
+    print(f"celeba_train_set len: {len(celeba_train_set)}")
 
     train_batch_sampler = batch_sampler(dataset=celeba_train_set,
                                         batch_size=args.batch_size,
@@ -122,7 +123,7 @@ def get_data():
 
     test_batch_sampler = batch_sampler(dataset=celeba_test_set,
                                        batch_size=args.batch_size,
-                                       shuffle=False, drop_last=False)
+                                       shuffle=True, drop_last=False)
     test_loader = DataLoader(dataset=celeba_test_set,  # return test_A, test_B
                              batch_sampler=test_batch_sampler,
                              num_workers=args.num_workers)
@@ -188,7 +189,7 @@ def main():
     logger = get_logger(args) if local_master else None
 
     if local_master:
-        logger.info(f"len of train_set: {len(train_loader)}; len of test_set: {len(test_loader)}")
+        logger.info(f"num of iters: {len(train_loader)}; len of test_loader: {len(test_loader)}")
 
     logger.info(
         f'[Process {os.getpid()}] world_size = {dist.get_world_size()}, '
@@ -249,8 +250,8 @@ def main():
     for epoch in range(epoch_size):
 
         for data_style_A, data_style_B in train_loader:
-            A = paddle.to_tensor(data_style_A, dtype=paddle.float32, stop_gradient=False)
-            B = paddle.to_tensor(data_style_B, dtype=paddle.float32, stop_gradient=False)
+            A = paddle.to_tensor(data_style_A, dtype=paddle.float32)
+            B = paddle.to_tensor(data_style_B, dtype=paddle.float32)
 
             AB = generator_B(A)
             BA = generator_A(B)
@@ -316,8 +317,8 @@ def main():
             if (iters + 1) % args.image_save_interval == 0 and local_master:
                 with paddle.no_grad():
                     for test_A, test_B in test_loader:
-                        test_A = paddle.to_tensor(test_A, dtype=paddle.float32, stop_gradient=False)
-                        test_B = paddle.to_tensor(test_B, dtype=paddle.float32, stop_gradient=False)
+                        test_A = paddle.to_tensor(test_A, dtype=paddle.float32)
+                        test_B = paddle.to_tensor(test_B, dtype=paddle.float32)
 
                         AB = generator_B(test_A)
                         BA = generator_A(test_B)
