@@ -17,10 +17,9 @@ from PIL import Image
 
 
 parser = argparse.ArgumentParser(description='Paddle implementation of DiscoGAN')
-parser.add_argument('--cuda', type=str, default='true', help='Set cuda usage')
 parser.add_argument('--task_name', type=str, default='facescrub', help='Set data name')
 parser.add_argument('--epoch_size', type=int, default=5000, help='Set epoch size')
-parser.add_argument('--batch_size', type=int, default=64, help='Set batch size')
+parser.add_argument('--batch_size', type=int, default=200, help='Set batch size')
 parser.add_argument('--num_workers', type=int, default=4, help='dataloader num_workers')
 parser.add_argument('--learning_rate', type=float, default=0.0002, help='Set learning rate for optimizer')
 parser.add_argument('--result_path', type=str, default='./results/',
@@ -32,6 +31,8 @@ parser.add_argument('--image_size', type=int, default=64, help='Image size. 64 f
 
 parser.add_argument('--gan_curriculum', type=int, default=10000,
                     help='Strong GAN loss for certain period at the beginning')
+parser.add_argument('--iters', type=int, default=0,
+                    help='iters you have run')
 parser.add_argument('--starting_rate', type=float, default=0.01,
                     help='Set the lambda weight between GAN loss and Recon loss during curriculum period at the beginning. We used the 0.01 weight.')
 parser.add_argument('--default_rate', type=float, default=0.5,
@@ -96,62 +97,35 @@ def as_np(data):
 
 
 def get_data():
-    # celebA / edges2shoes / edges2handbags / ...
-    if args.task_name == 'facescrub':
-        data_A, data_B = get_facescrub_files(test=False, n_test=args.n_test)
-        test_A, test_B = get_facescrub_files(test=True, n_test=args.n_test)
+    if args.local_rank == -1:
+        batch_sampler = BatchSampler
+    else:
+        batch_sampler = DistributedBatchSampler
 
-    elif args.task_name == 'celebA':
-        if args.local_rank == -1:
-            batch_sampler = BatchSampler
-        else:
-            batch_sampler = DistributedBatchSampler
+    celeba_train_set = CelebaDataset(img_dir=args.image_dir, attr_file=args.attr_file,
+                                     style_A=args.style_A, style_B=args.style_B,
+                                     constraint=args.constraint,
+                                     constraint_type=args.constraint_type,
+                                     test=False, n_test=args.n_test)
+    celeba_test_set = CelebaDataset(img_dir=args.image_dir, attr_file=args.attr_file,
+                                    style_A=args.style_A, style_B=args.style_B,
+                                    constraint=args.constraint,
+                                    constraint_type=args.constraint_type,
+                                    test=True, n_test=args.n_test)
 
-        celeba_train_set = CelebaDataset(img_dir=args.image_dir, attr_file=args.attr_file,
-                                         style_A=args.style_A, style_B=args.style_B,
-                                         constraint=args.constraint,
-                                         constraint_type=args.constraint_type,
-                                         test=False, n_test=args.n_test)
-        celeba_test_set = CelebaDataset(img_dir=args.image_dir, attr_file=args.attr_file,
-                                        style_A=args.style_A, style_B=args.style_B,
-                                        constraint=args.constraint,
-                                        constraint_type=args.constraint_type,
-                                        test=True, n_test=args.n_test)
+    train_batch_sampler = batch_sampler(dataset=celeba_train_set,
+                                        batch_size=args.batch_size,
+                                        shuffle=True, drop_last=False)
+    train_loader = DataLoader(dataset=celeba_train_set,  # return data_A, data_B
+                              batch_sampler=train_batch_sampler,
+                              num_workers=args.num_workers)
 
-        train_batch_sampler = batch_sampler(dataset=celeba_train_set,
-                                            batch_size=args.batch_size,
-                                            shuffle=True, drop_last=False)
-        train_loader = DataLoader(dataset=celeba_train_set,  # return data_A, data_B
-                                  batch_sampler=train_batch_sampler,
-                                  num_workers=args.num_workers)
-
-        test_batch_sampler = batch_sampler(dataset=celeba_test_set,
-                                           batch_size=args.batch_size,
-                                           shuffle=False, drop_last=False)
-        test_loader = DataLoader(dataset=celeba_test_set,  # return test_A, test_B
-                                 batch_sampler=test_batch_sampler,
-                                 num_workers=args.num_workers)
-
-    elif args.task_name == 'edges2shoes':
-        data_A, data_B = get_edge2photo_files(item='edges2shoes', test=False)
-        test_A, test_B = get_edge2photo_files(item='edges2shoes', test=True)
-
-    elif args.task_name == 'edges2handbags':
-        data_A, data_B = get_edge2photo_files(item='edges2handbags', test=False)
-        test_A, test_B = get_edge2photo_files(item='edges2handbags', test=True)
-
-    elif args.task_name == 'handbags2shoes':
-        data_A_1, data_A_2 = get_edge2photo_files(item='edges2handbags', test=False)
-        test_A_1, test_A_2 = get_edge2photo_files(item='edges2handbags', test=True)
-
-        data_A = np.hstack([data_A_1, data_A_2])
-        test_A = np.hstack([test_A_1, test_A_2])
-
-        data_B_1, data_B_2 = get_edge2photo_files(item='edges2shoes', test=False)
-        test_B_1, test_B_2 = get_edge2photo_files(item='edges2shoes', test=True)
-
-        data_B = np.hstack([data_B_1, data_B_2])
-        test_B = np.hstack([test_B_1, test_B_2])
+    test_batch_sampler = batch_sampler(dataset=celeba_test_set,
+                                       batch_size=args.batch_size,
+                                       shuffle=False, drop_last=False)
+    test_loader = DataLoader(dataset=celeba_test_set,  # return test_A, test_B
+                             batch_sampler=test_batch_sampler,
+                             num_workers=args.num_workers)
 
     return train_loader, test_loader
 
@@ -166,7 +140,7 @@ def get_fm_loss(real_feats, fake_feats, criterion):
     return losses
 
 
-def get_gan_loss(dis_real, dis_fake, criterion, cuda):
+def get_gan_loss(dis_real, dis_fake, criterion):
     labels_dis_real = paddle.ones([dis_real.shape[0], 1])
     labels_dis_fake = paddle.zeros([dis_fake.shape[0], 1])
     labels_gen = paddle.ones([dis_fake.shape[0], 1])
@@ -186,14 +160,6 @@ def main():
 
     if args.local_rank != -1:
         dist.init_parallel_env()
-
-    cuda = args.cuda
-    if cuda == 'true':
-        cuda = True
-    else:
-        cuda = False
-
-    task_name = args.task_name
 
     epoch_size = args.epoch_size
     batch_size = args.batch_size
@@ -278,7 +244,7 @@ def main():
                            beta1=0.5, beta2=0.999,
                            weight_decay=0.00001)
 
-    iters = 0
+    iters = args.iters
 
     for epoch in range(epoch_size):
 
@@ -300,14 +266,14 @@ def main():
             A_dis_real, A_feats_real = discriminator_A(A)
             A_dis_fake, A_feats_fake = discriminator_A(BA)
 
-            dis_loss_A, gen_loss_A = get_gan_loss(A_dis_real, A_dis_fake, gan_criterion, cuda)
+            dis_loss_A, gen_loss_A = get_gan_loss(A_dis_real, A_dis_fake, gan_criterion)
             fm_loss_A = get_fm_loss(A_feats_real, A_feats_fake, feat_criterion)
 
             # Real/Fake GAN Loss (B)
             B_dis_real, B_feats_real = discriminator_B(B)
             B_dis_fake, B_feats_fake = discriminator_B(AB)
 
-            dis_loss_B, gen_loss_B = get_gan_loss(B_dis_real, B_dis_fake, gan_criterion, cuda)
+            dis_loss_B, gen_loss_B = get_gan_loss(B_dis_real, B_dis_fake, gan_criterion)
             fm_loss_B = get_fm_loss(B_feats_real, B_feats_fake, feat_criterion)
 
             # Total Loss
@@ -340,13 +306,12 @@ def main():
                 optim_gen.clear_grad()
 
             if iters % args.log_interval == 0 and local_master:
-                logger.info(f"Epoch: {epoch} - Iter: {iters} -------------------------")
-                logger.info(f"Total GEN Loss: {gen_loss.item()}")
-                logger.info(f"Total DIS Loss: {dis_loss.item()}")
-                logger.info(f"GEN Loss: {as_np(gen_loss_A.mean())}, {as_np(gen_loss_B.mean())}")
-                logger.info(f"Feature Matching Loss: {as_np(fm_loss_A.mean())}, {as_np(fm_loss_B.mean())}")
-                logger.info(f"RECON Loss: {as_np(recon_loss_A.mean())}, {as_np(recon_loss_B.mean())}")
-                logger.info(f"DIS Loss: {as_np(dis_loss_A.mean())}, {as_np(dis_loss_B.mean())} \n")
+                logger.info(f"Epoch: {epoch} - Iter: {iters} - Total GEN Loss: {round(gen_loss.item(), 7)} - "
+                            f"Total DIS Loss: {round(dis_loss.item(), 7)} - "
+                            f"GEN Loss: {as_np(gen_loss_A.mean())}, {as_np(gen_loss_B.mean())} - "
+                            f"Feature Matching Loss: {as_np(fm_loss_A.mean())}, {as_np(fm_loss_B.mean())} - "
+                            f"RECON Loss: {as_np(recon_loss_A.mean())}, {as_np(recon_loss_B.mean())} - "
+                            f"DIS Loss: {as_np(dis_loss_A.mean())}, {as_np(dis_loss_B.mean())} \n")
 
             if (iters + 1) % args.image_save_interval == 0 and local_master:
                 with paddle.no_grad():
