@@ -20,8 +20,6 @@ Re-implement DiscoGAN in Paddle
 
 ## 快速开始
 
-cifar10 数据集: [cifar-10-python.tar.gz](https://github.com/ImportPaddle/FixMatch-Paddle/releases/tag/trainv0.8)
-
 ### Train
 
 - **单卡：**
