@@ -25,6 +25,14 @@ Re-implement DiscoGAN in Paddle
 
 ### Train
 
+#### 数据预处理（可选）
+
+将 celeba 数据集 croped 到 128×128：
+
+```
+python DiscoGAN-Paddle/crop_celeba.py celeba_cropped work/celeba/img_align_celeba/ -o work/celeba/croped_celeba
+```
+
 - **单卡：**
     
     ```
