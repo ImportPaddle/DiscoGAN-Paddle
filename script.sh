@@ -9,6 +9,15 @@
 # evaluation
 python DiscoGAN-Paddle/discogan/evaluation.py --image_dir ./datasets/celeba/celeba_demo --attr_file ./datasets/celeba/list_attr_celeba_demo.txt --n_test 10 --task_name celebA --style_A Male --batch_size 1 --ckpt_path ./datasets/ckpts/discoGANhair.pdparams
 
+python DiscoGAN-Paddle/discogan/evaluation.py \
+  --image_dir ./datasets/celeba/celeba_demo \
+  --attr_file ./datasets/celeba/list_attr_celeba_demo.txt \
+  --n_test 10 \
+  --task_name celebA \
+  --style_A Male \
+  --batch_size 1 \
+  --ckpt_path ./datasets/ckpts/discoGANhair.pdparams
+
 # Run CelebA (eye_glass to no_eye_glass, only male)
 python DiscoGAN-Paddle/discogan/image_translation.py \
     --data_path work/celeba \
