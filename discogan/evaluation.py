@@ -12,10 +12,13 @@ from model import *
 from PIL import Image
 
 parser = argparse.ArgumentParser(description='Paddle implementation of DiscoGAN')
+parser.add_argument('--task_name', type=str, default='facescrub', help='Set data name')
+parser.add_argument('--model_arch', type=str, default='discogan',
+                    help='choose among gan/recongan/discogan. gan - standard GAN, recongan - GAN with reconstruction, discogan - DiscoGAN.')
 
 parser.add_argument('--batch_size', type=int, default=64, help='Set batch size')
 parser.add_argument('--num_workers', type=int, default=4, help='dataloader num_workers')
-parser.add_argument('--result_path', type=str, default='./results/',
+parser.add_argument('--result_path', type=str, default='./results0/',
                     help='Set the path the result images will be saved.')
 
 parser.add_argument('--image_dir', type=str, default=None,
@@ -35,6 +38,8 @@ parser.add_argument('--constraint_type', type=str, default=None,
                     help='Used along with --constraint. If --constraint_type=1, only images satisfying the constraint are used. If --constraint_type=-1, only images not satisfying the constraint are used.')
 parser.add_argument('--n_test', type=int, default=200, help='Number of test data.')
 
+args = parser.parse_args()
+
 paddle.set_device('gpu') if paddle.is_compiled_with_cuda() else paddle.set_device('cpu')
 
 
@@ -52,7 +57,7 @@ def get_data():
                              batch_sampler=test_batch_sampler,
                              num_workers=args.num_workers)
 
-    return train_loader, test_loader
+    return test_loader
 
 
 test_loader = get_data()
@@ -60,19 +65,13 @@ test_loader = get_data()
 
 def main():
     global args
-    args = parser.parse_args()
 
     result_path = os.path.join(args.result_path, args.task_name)
     if args.style_A:
         result_path = os.path.join(result_path, args.style_A)
     result_path = os.path.join(result_path, args.model_arch)
 
-    model_path = os.path.join(args.model_path, args.task_name)
-    if args.style_A:
-        model_path = os.path.join(model_path, args.style_A)
-    model_path = os.path.join(model_path, args.model_arch)
-
-    train_loader, test_loader = get_data()
+    test_loader = get_data()
 
     if not os.path.exists(result_path):
         os.makedirs(result_path, exist_ok=True)
@@ -105,7 +104,7 @@ def main():
 
             n_testset = min(10, test_A.shape[0], test_B.shape[0])
 
-            subdir_path = os.path.join(result_path, str(iters / args.image_save_interval))
+            subdir_path = result_path
 
             if os.path.exists(subdir_path):
                 pass

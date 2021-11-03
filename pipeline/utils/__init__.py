@@ -74,7 +74,7 @@ def torch2paddle(ckpt_path):
 
 
 def torch2paddle_gether(ckpt_path):
-    torch_model = torch.load(ckpt_path)
+    torch_model = torch.load(ckpt_path, map_location='cpu')
     paddle_state_dict = {}
     tmp_state_dict = {}
     for state_key in torch_model.keys():
@@ -87,7 +87,7 @@ def torch2paddle_gether(ckpt_path):
                 val = val.t()
             tmp_state_dict[key] = val.data.detach().numpy()
         paddle_state_dict[state_key] = tmp_state_dict
-    # paddle.save(paddle_state_dict, 'discoGAN.pdparams')
+    paddle.save(paddle_state_dict, 'discoGANhair.pdparams')
     return paddle_state_dict
 
 def gen_npy(seed_list, model_name='resnext'):
@@ -107,3 +107,5 @@ def gen_npy(seed_list, model_name='resnext'):
     reprod_log_paddle.save(f"./{model_name}_paddle.npy")
     reprod_log_torch.save(f"./{model_name}_torch.npy")
 
+if __name__ == '__main__':
+    torch2paddle_gether(r"D:\code_sources\from_github\paddlepaddle\14s\DiscoGAN-Paddle\datasets\ckpts\discoGAN_0.9999.pth")
