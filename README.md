@@ -55,7 +55,8 @@ python DiscoGAN-Paddle/crop_celeba.py celeba_cropped work/celeba/img_align_celeb
     
 - **单机 4 卡：**
 
-AI Studio 脚本训练：`train.sh`
+    AI Studio 脚本训练：`train.sh`
+    
     ```shell script
     #!/bin/bash
     
@@ -93,7 +94,7 @@ AI Studio 脚本训练：`train.sh`
 
 *现在训练了 gender 转换的模型*
 
-- 加载模型:
+- 设定数据集路径，加载预训练模型，设定输出路径:
 
 ```
 python DiscoGAN-Paddle/discogan/evaluation.py \
@@ -104,6 +105,7 @@ python DiscoGAN-Paddle/discogan/evaluation.py \
   --style_A Male \
   --batch_size 1 \
   --ckpt_path path/to/discoGAN.pdparams
+  --result_path ./results
 ```
 
 样例如下：

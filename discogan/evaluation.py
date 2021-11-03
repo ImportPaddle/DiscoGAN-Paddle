@@ -18,7 +18,7 @@ parser.add_argument('--model_arch', type=str, default='discogan',
 
 parser.add_argument('--batch_size', type=int, default=64, help='Set batch size')
 parser.add_argument('--num_workers', type=int, default=4, help='dataloader num_workers')
-parser.add_argument('--result_path', type=str, default='./results0/',
+parser.add_argument('--result_path', type=str, default='./results/',
                     help='Set the path the result images will be saved.')
 
 parser.add_argument('--image_dir', type=str, default=None,
