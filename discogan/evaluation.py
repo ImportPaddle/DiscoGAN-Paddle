@@ -56,6 +56,7 @@ def get_data():
     test_loader = DataLoader(dataset=celeba_test_set,  # return test_A, test_B
                              batch_sampler=test_batch_sampler,
                              num_workers=args.num_workers)
+    print(f"test set: {len(celeba_test_set)}, test loader: {len(test_loader)}")
 
     return test_loader
 
@@ -94,8 +95,8 @@ def main():
 
     with paddle.no_grad():
         for test_A, test_B in test_loader:
-            test_A = paddle.to_tensor(test_A, dtype=paddle.float32, stop_gradient=False)
-            test_B = paddle.to_tensor(test_B, dtype=paddle.float32, stop_gradient=False)
+            test_A = paddle.to_tensor(test_A, dtype=paddle.float32)
+            test_B = paddle.to_tensor(test_B, dtype=paddle.float32)
 
             AB = generator_B(test_A)
             BA = generator_A(test_B)

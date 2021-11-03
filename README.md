@@ -114,6 +114,8 @@ python DiscoGAN-Paddle/discogan/evaluation.py \
 | --- | --- | ---|
 |![1A](./assets/figs/1.A.jpg)|![1AB](./assets/figs/1.AB.jpg)|![1ABA](./assets/figs/1.ABA.jpg)|
 |![2B](./assets/figs/2.B.jpg)|![2BA](./assets/figs/2.BA.jpg)|![2BAB](./assets/figs/2.BAB.jpg)|
+|![0B](./assets/figs/0.B.jpg)|![0BA](./assets/figs/0.BA.jpg)|![0BAB](./assets/figs/0.BAB.jpg)|
+|![2A](./assets/figs/2.A.jpg)|![2AB](./assets/figs/2.AB.jpg)|![2ABA](./assets/figs/2.ABA.jpg)|
 
 > 详见 `./assets/figs`
 
