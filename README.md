@@ -101,3 +101,5 @@ python DiscoGAN-Paddle/discogan/evaluation.py \
 | --- | --- | ---|
 |![1A](./assets/figs/1.A.jpg)|![1AB](./assets/figs/1.AB.jpg)|![1ABA](./assets/figs/1.ABA.jpg)|
 |![2B](./assets/figs/2.B.jpg)|![2BA](./assets/figs/2.BA.jpg)|![2BAB](./assets/figs/2.BAB.jpg)|
+
+> 详见 `./assets/figs`
