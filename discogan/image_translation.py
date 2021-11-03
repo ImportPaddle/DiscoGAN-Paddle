@@ -300,11 +300,12 @@ def main():
             if iters % args.update_interval == 0:
                 dis_loss.backward()
                 optim_dis.step()
-                optim_dis.clear_grad()
             else:
                 gen_loss.backward()
                 optim_gen.step()
-                optim_gen.clear_grad()
+
+            optim_dis.clear_grad()
+            optim_gen.clear_grad()
 
             if iters % args.log_interval == 0 and local_master:
                 logger.info(f"Epoch: {epoch} - Iter: {iters} - Total GEN Loss: {round(gen_loss.item(), 7)} - "
